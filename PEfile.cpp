@@ -469,9 +469,9 @@ void printExportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 		c += sizeof(exportDirectory->Characteristics);
 		printf("%-40s|%-8X|%-8s|%X\n", "  TimeDateStamp", c, "Dword", exportDirectory->TimeDateStamp);
 		c += sizeof(exportDirectory->TimeDateStamp);
-		printf("%-40s|%-8X|%-8s|%X\n", "  MajorVersion", c, "Dword", exportDirectory->MajorVersion);
+		printf("%-40s|%-8X|%-8s|%X\n", "  MajorVersion", c, "Word", exportDirectory->MajorVersion);
 		c += sizeof(exportDirectory->MajorVersion);
-		printf("%-40s|%-8X|%-8s|%X\n", "  MinorVersion", c, "Dword", exportDirectory->MinorVersion);
+		printf("%-40s|%-8X|%-8s|%X\n", "  MinorVersion", c, "Word", exportDirectory->MinorVersion);
 		c += sizeof(exportDirectory->MinorVersion);
 		printf("%-40s|%-8X|%-8s|%X\n", "  Name", c, "Dword", exportDirectory->Name);
 		c += sizeof(exportDirectory->Name);
@@ -495,15 +495,18 @@ void printExportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 
 			printf("\n%-41s%-11s%-10s\n", "  EXPORT FUNCTION", "FuncRVA", "NameRVA");
 			for (int i = 0; i < exportDirectory->NumberOfFunctions; i++) {
+				if (addressFunction[i] == 0)continue;
+				BOOL named = FALSE;
 				for (int j = 0; j < exportDirectory->NumberOfNames; j++) {
 					if (addressNameOrdinal[j] == i) {
-						printf("  %-2x", i + exportDirectory->Base);
+						named = TRUE;
 						char* name = (char*)(RVAToOffset64(addressName[j], dosHeader) + (DWORD64)dosHeader);
-						printf("%-36s", name);
-						printf("|0x%-8x", addressFunction[i]);
-						printf("|0x%-8x\n", addressName[j]);
+						printf("  %-5x%-33s|%-8X|%-8X\n", i + exportDirectory->Base,name, addressFunction[i], addressName[j]);
 						break;
 					}
+				}
+				if (!named) {
+					printf("  %-5x%-33s|%-8X\n", i + exportDirectory->Base, "", addressFunction[i]);
 				}
 			}
 		}
@@ -539,8 +542,8 @@ void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 				printf("%-41s%-9s%-9s%-10s\n", "   IMPORT FUNCTION", "Offset", "Hint", "OFTs");
 				while (thunk->u1.AddressOfData != 0) {
 
-					if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
-						printf("%-40s|0x%-8x|0x%-8x\n", "    Ordinal", thunk->u1.Ordinal, thunk->u1.Function);
+					if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG32) {
+						printf("    %-36s|%-8X|%-8X\n", "", thunk->u1.Ordinal, thunk->u1.Function);
 					}
 					else {
 						DWORD nameImportOffset = RVAToOffset64(thunk->u1.AddressOfData, dosHeader);
@@ -576,8 +579,8 @@ void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 				printf("%-41s%-9s%-9s%-10s\n", "   IMPORT FUNCTION", "Offset", "Hint", "OFTs");
 				while (thunk->u1.AddressOfData != 0) {
 
-					if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
-						printf("%-40s|0x%-8llx|0x%-8llx\n", "    Ordinal", thunk->u1.Ordinal, thunk->u1.Function);
+					if (thunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64) {
+						printf("    %-36s|%-8llX|%-8llX\n", "", thunk->u1.Ordinal, thunk->u1.Function);
 					}
 					else {
 						DWORD nameImportOffset = RVAToOffset64(thunk->u1.AddressOfData, dosHeader);
