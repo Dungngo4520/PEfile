@@ -1,95 +1,26 @@
 #include <stdio.h>
 #include <Windows.h>
+#include "Header.h"
 
-
-
-void Error(char* ErrorMessage, BOOL printErrorCode, BOOL isReturn, int exitCode);
-DWORD RVAToOffset32(DWORD RVA, IMAGE_DOS_HEADER* dosHeader);
-DWORD64 RVAToOffset64(DWORD64 RVA, IMAGE_DOS_HEADER* dosHeader);
-DWORD OffsetToRVA32(DWORD Offset, IMAGE_DOS_HEADER* dosHeader);
-DWORD64 OffsetToRVA64(DWORD64 Offset, IMAGE_DOS_HEADER* dosHeader);
-void printDosHeader(IMAGE_DOS_HEADER* dosHeader);
-void printNtHeader(IMAGE_DOS_HEADER* dosHeader);
-void printNtSignature(IMAGE_DOS_HEADER* dosHeader);
-void printFileHeader(IMAGE_DOS_HEADER* dosHeader);
-void printOptionalHeader(IMAGE_DOS_HEADER* dosHeader);
-void printDataDirectory(IMAGE_DOS_HEADER* dosHeader);
-void printSectionHeaders(IMAGE_DOS_HEADER* dosHeader);
-void printExportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction);
-void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction);
 
 int main(int argc, char* argv[]) {
-	char fileName[MAX_PATH] = { 0 };
-	HANDLE hFile = NULL;
-	DWORD fileSize = 0;
-	DWORD byteRead = 0;
 	LPVOID fileData = NULL;
 	IMAGE_DOS_HEADER* dosHeader = NULL;
-	IMAGE_NT_HEADERS* ntHeader = NULL;
-	IMAGE_NT_HEADERS32* ntHeader32 = NULL;
-	IMAGE_NT_HEADERS64* ntHeader64 = NULL;
-	IMAGE_FILE_HEADER fileHeader = {};
-	IMAGE_OPTIONAL_HEADER optionalHeader = {};
-	IMAGE_OPTIONAL_HEADER32 optionalHeader32 = {};
-	IMAGE_OPTIONAL_HEADER64 optionalHeader64 = {};
-	IMAGE_DATA_DIRECTORY* dataDirectory = NULL;
-	IMAGE_SECTION_HEADER* sectionHeader = NULL;
-	IMAGE_EXPORT_DIRECTORY* exportDirectory = NULL;
-	IMAGE_IMPORT_DESCRIPTOR* importDirectory = NULL;
+	DWORD fileSize = 0;
 
 	if (argc != 2)
 		Error("Usage: PEfile <PE file>", FALSE, TRUE, 1);
 
-	strcpy_s(fileName, MAX_PATH, argv[1]);
-	hFile = CreateFile(fileName, GENERIC_ALL, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL, NULL);
-	if (hFile == INVALID_HANDLE_VALUE)
-		Error("Cannot open file.", TRUE, TRUE, 1);
-
-	fileSize = GetFileSize(hFile, NULL);
-
-	fileData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, fileSize);
-	if (!fileData)
-		Error("Cannot allocate memory.", FALSE, TRUE, 1);
-	if (!ReadFile(hFile, fileData, fileSize, &byteRead, NULL))
-		Error("Cannot read file.", TRUE, TRUE, 1);
-
+	getFileData(argv[1], &fileData, &fileSize);
 	dosHeader = (IMAGE_DOS_HEADER*)fileData;
-	if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
-		Error("Not DOS-compatible file\n", FALSE, TRUE, 1);
-	}
-
-	ntHeader = (IMAGE_NT_HEADERS*)((DWORD_PTR)dosHeader + dosHeader->e_lfanew);
-	ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
-	ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
-
-	if (ntHeader->Signature != IMAGE_NT_SIGNATURE) {
-		Error("Not PE file.", FALSE, TRUE, 1);
-	}
-
-	if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
-		fileHeader = ntHeader32->FileHeader;
-		optionalHeader32 = ntHeader32->OptionalHeader;
-		dataDirectory = optionalHeader32.DataDirectory;
-	}
-	else if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-		fileHeader = ntHeader64->FileHeader;
-		optionalHeader64 = ntHeader64->OptionalHeader;
-		dataDirectory = optionalHeader64.DataDirectory;
-	}
-	else {
-		fileHeader = ntHeader->FileHeader;
-		optionalHeader = ntHeader->OptionalHeader;
-		dataDirectory = optionalHeader.DataDirectory;
+	if (!PEValidate(dosHeader)) {
+		Error("Invalid file.", TRUE, TRUE, 1);
 	}
 
 	printf("DOS_HEADER\n");
 	printDosHeader(dosHeader);
 	printf("PE_HEADER\n");
 	printNtHeader(dosHeader);
-	//printNtSignature(dosHeader);
-	//printFileHeader(dosHeader);
-	//printOptionalHeader(dosHeader);
 	printf("DATA_DIRECTORY\n");
 	printDataDirectory(dosHeader);
 	printf("SECTION_HEADERS\n");
@@ -101,7 +32,7 @@ int main(int argc, char* argv[]) {
 	return 0;
 }
 
-void printDosHeader(IMAGE_DOS_HEADER* dosHeader) {
+VOID printDosHeader(IMAGE_DOS_HEADER* dosHeader) {
 	DWORD c = 0;
 	printf("%-40s|%-8X|%-8s|%X\n", "  e_magic", c, "Word", dosHeader->e_magic);
 	c += sizeof(dosHeader->e_magic);
@@ -146,39 +77,36 @@ void printDosHeader(IMAGE_DOS_HEADER* dosHeader) {
 	printf("%-40s|%-8X|%-8s|%X\n", "  e_lfanew", c, "Dword", dosHeader->e_lfanew);
 }
 
-void printNtHeader(IMAGE_DOS_HEADER* dosHeader) {
+VOID printNtHeader(IMAGE_DOS_HEADER* dosHeader) {
 	printNtSignature(dosHeader);
 	printFileHeader(dosHeader);
 	printOptionalHeader(dosHeader);
 }
 
-void printNtSignature(IMAGE_DOS_HEADER* dosHeader) {
+VOID printNtSignature(IMAGE_DOS_HEADER* dosHeader) {
 	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	int c = dosHeader->e_lfanew;
 
-	if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+	if (!is64(dosHeader)) {
 		printf("%-40s|%-8X|%-8s|%X\n", "  Signature", c, "Dword", ntHeader32->Signature);
 	}
-	else if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+	else {
 		printf("%-40s|%-8X|%-8s|%X\n", "  Signature", c, "Dword", ntHeader64->Signature);
 	}
-	else return;
 }
 
-void printFileHeader(IMAGE_DOS_HEADER* dosHeader) {
+VOID printFileHeader(IMAGE_DOS_HEADER* dosHeader) {
 	IMAGE_FILE_HEADER fileHeader;
 	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	int c = dosHeader->e_lfanew + sizeof(IMAGE_NT_SIGNATURE);
 
-	if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+	if (!is64(dosHeader)) {
 		fileHeader = ntHeader32->FileHeader;
 	}
-	else if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-		fileHeader = ntHeader64->FileHeader;
-	}
-	else return;
+	else fileHeader = ntHeader64->FileHeader;
+
 	printf("%-40s\n", "  FileHeader");
 	printf("%-40s|%-8X|%-8s|%X\n", "    Characteristics", c, "Word", fileHeader.Machine);
 	c += sizeof(fileHeader.Machine);
@@ -195,12 +123,12 @@ void printFileHeader(IMAGE_DOS_HEADER* dosHeader) {
 	printf("%-40s|%-8X|%-8s|%X\n", "    Characteristics", c, "Word", fileHeader.Characteristics);
 }
 
-void printOptionalHeader(IMAGE_DOS_HEADER* dosHeader) {
+VOID printOptionalHeader(IMAGE_DOS_HEADER* dosHeader) {
 	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	int c = dosHeader->e_lfanew + sizeof(IMAGE_NT_SIGNATURE) + sizeof(IMAGE_FILE_HEADER);
 
-	if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+	if (!is64(dosHeader)) {
 		IMAGE_OPTIONAL_HEADER32 optionalHeader = ntHeader32->OptionalHeader;
 		printf("%-40s\n", "  OptionalHeader");
 		printf("%-40s|%-8X|%-8s|%X\n", "    Magic", c, "Word", optionalHeader.Magic);
@@ -263,7 +191,7 @@ void printOptionalHeader(IMAGE_DOS_HEADER* dosHeader) {
 		c += sizeof(optionalHeader.LoaderFlags);
 		printf("%-40s|%-8X|%-8s|%X\n", "    NumberOfRvaAndSizes", c, "Dword", optionalHeader.NumberOfRvaAndSizes);
 	}
-	else if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+	else {
 		IMAGE_OPTIONAL_HEADER64 optionalHeader = ntHeader64->OptionalHeader;
 		printf("%-40s\n", "  OptionalHeader");
 		printf("%-40s|%-8X|%-8s|%X\n", "    Magic", c, "Word", optionalHeader.Magic);
@@ -324,23 +252,21 @@ void printOptionalHeader(IMAGE_DOS_HEADER* dosHeader) {
 		c += sizeof(optionalHeader.LoaderFlags);
 		printf("%-40s|%-8X|%-8s|%X\n", "    NumberOfRvaAndSizes", c, "Dword", optionalHeader.NumberOfRvaAndSizes);
 	}
-	else return;
 }
 
-void printDataDirectory(IMAGE_DOS_HEADER* dosHeader) {
+VOID printDataDirectory(IMAGE_DOS_HEADER* dosHeader) {
 	IMAGE_DATA_DIRECTORY* dataDirectory;
 	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	int c = dosHeader->e_lfanew + sizeof(IMAGE_NT_SIGNATURE) + sizeof(IMAGE_FILE_HEADER);
-	if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+	if (!is64(dosHeader)) {
 		dataDirectory = ntHeader32->OptionalHeader.DataDirectory;
 		c += ntHeader32->FileHeader.SizeOfOptionalHeader - sizeof(IMAGE_DATA_DIRECTORY) * 16;
 	}
-	else if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+	else {
 		dataDirectory = ntHeader64->OptionalHeader.DataDirectory;
 		c += ntHeader64->FileHeader.SizeOfOptionalHeader - sizeof(IMAGE_DATA_DIRECTORY) * 16;
 	}
-	else return;
 
 	printf("%-40s|%-8X|%-8s|%X\n", "  Export Directory RVA", c, "Dword", dataDirectory[0].VirtualAddress);
 	c += sizeof(dataDirectory[0].VirtualAddress);
@@ -404,23 +330,22 @@ void printDataDirectory(IMAGE_DOS_HEADER* dosHeader) {
 	c += sizeof(dataDirectory[14].Size);
 }
 
-void printSectionHeaders(IMAGE_DOS_HEADER* dosHeader) {
+VOID printSectionHeaders(IMAGE_DOS_HEADER* dosHeader) {
 	IMAGE_FILE_HEADER fileHeader;
 	IMAGE_SECTION_HEADER* sectionHeader;
 	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	int c = dosHeader->e_lfanew + sizeof(IMAGE_NT_SIGNATURE) + sizeof(IMAGE_FILE_HEADER);
-	if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+	if (!is64(dosHeader)) {
 		fileHeader = ntHeader32->FileHeader;
 		sectionHeader = (IMAGE_SECTION_HEADER*)((DWORD64)ntHeader32 + sizeof(IMAGE_NT_SIGNATURE) + sizeof(IMAGE_FILE_HEADER) + fileHeader.SizeOfOptionalHeader);
 		c += fileHeader.SizeOfOptionalHeader;
 	}
-	else if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+	else {
 		fileHeader = ntHeader64->FileHeader;
 		sectionHeader = (IMAGE_SECTION_HEADER*)((DWORD64)ntHeader64 + sizeof(IMAGE_NT_SIGNATURE) + sizeof(IMAGE_FILE_HEADER) + fileHeader.SizeOfOptionalHeader);
 		c += fileHeader.SizeOfOptionalHeader;
 	}
-	else return;
 
 	for (int i = 0; i < fileHeader.NumberOfSections; i++) {
 		printf("  %-38s|%-8X\n", sectionHeader[i].Name, c);
@@ -446,21 +371,20 @@ void printSectionHeaders(IMAGE_DOS_HEADER* dosHeader) {
 	}
 }
 
-void printExportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
+VOID printExportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 	IMAGE_DATA_DIRECTORY* dataDirectory;
 	IMAGE_EXPORT_DIRECTORY* exportDirectory;
 	IMAGE_SECTION_HEADER sectionHeader;
 	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
-	if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+	if (!is64(dosHeader)) {
 		dataDirectory = ntHeader32->OptionalHeader.DataDirectory;
-		exportDirectory = (IMAGE_EXPORT_DIRECTORY*)(RVAToOffset64(dataDirectory[0].VirtualAddress, dosHeader) + (DWORD64)dosHeader);
+		exportDirectory = (IMAGE_EXPORT_DIRECTORY*)(RVAToOffset(dataDirectory[0].VirtualAddress, dosHeader) + (DWORD64)dosHeader);
 	}
-	else if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+	else {
 		dataDirectory = ntHeader64->OptionalHeader.DataDirectory;
-		exportDirectory = (IMAGE_EXPORT_DIRECTORY*)(RVAToOffset64(dataDirectory[0].VirtualAddress, dosHeader) + (DWORD64)dosHeader);
+		exportDirectory = (IMAGE_EXPORT_DIRECTORY*)(RVAToOffset(dataDirectory[0].VirtualAddress, dosHeader) + (DWORD64)dosHeader);
 	}
-	else return;
 	int c = (DWORD64)exportDirectory - (DWORD64)dosHeader;
 
 	if (dataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size > 0) {
@@ -489,9 +413,9 @@ void printExportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 		c += sizeof(exportDirectory->AddressOfNameOrdinals);
 
 		if (printFunction) {
-			DWORD* addressFunction = (DWORD*)(RVAToOffset64(exportDirectory->AddressOfFunctions, dosHeader) + (DWORD64)dosHeader);
-			DWORD* addressName = (DWORD*)(RVAToOffset64(exportDirectory->AddressOfNames, dosHeader) + (DWORD64)dosHeader);
-			WORD* addressNameOrdinal = (WORD*)(RVAToOffset64(exportDirectory->AddressOfNameOrdinals, dosHeader) + (DWORD64)dosHeader);
+			DWORD* addressFunction = (DWORD*)(RVAToOffset(exportDirectory->AddressOfFunctions, dosHeader) + (DWORD64)dosHeader);
+			DWORD* addressName = (DWORD*)(RVAToOffset(exportDirectory->AddressOfNames, dosHeader) + (DWORD64)dosHeader);
+			WORD* addressNameOrdinal = (WORD*)(RVAToOffset(exportDirectory->AddressOfNameOrdinals, dosHeader) + (DWORD64)dosHeader);
 
 			printf("\n%-41s%-11s%-10s\n", "  EXPORT FUNCTION", "FuncRVA", "NameRVA");
 			for (int i = 0; i < exportDirectory->NumberOfFunctions; i++) {
@@ -500,8 +424,8 @@ void printExportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 				for (int j = 0; j < exportDirectory->NumberOfNames; j++) {
 					if (addressNameOrdinal[j] == i) {
 						named = TRUE;
-						char* name = (char*)(RVAToOffset64(addressName[j], dosHeader) + (DWORD64)dosHeader);
-						printf("  %-5x%-33s|%-8X|%-8X\n", i + exportDirectory->Base,name, addressFunction[i], addressName[j]);
+						char* name = (char*)(RVAToOffset(addressName[j], dosHeader) + (DWORD64)dosHeader);
+						printf("  %-5x%-33s|%-8X|%-8X\n", i + exportDirectory->Base, name, addressFunction[i], addressName[j]);
 						break;
 					}
 				}
@@ -513,18 +437,18 @@ void printExportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 	}
 }
 
-void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
+VOID printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 	IMAGE_IMPORT_DESCRIPTOR* importDirectory;
 	IMAGE_DATA_DIRECTORY* dataDirectory;
 	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 	int c = 0;
-	if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+	if (!is64(dosHeader)) {
 		dataDirectory = ntHeader32->OptionalHeader.DataDirectory;
-		importDirectory = (IMAGE_IMPORT_DESCRIPTOR*)(RVAToOffset64(dataDirectory[1].VirtualAddress, dosHeader) + (DWORD64)dosHeader);
+		importDirectory = (IMAGE_IMPORT_DESCRIPTOR*)(RVAToOffset(dataDirectory[1].VirtualAddress, dosHeader) + (DWORD64)dosHeader);
 		c = (DWORD64)importDirectory - (DWORD64)dosHeader;
 		while (importDirectory->Name != 0) {
-			printf("%-40s|%-8llX\n", (char*)RVAToOffset64(importDirectory->Name, dosHeader) + (DWORD64)dosHeader, RVAToOffset64(importDirectory->Name, dosHeader));
+			printf("%-40s|%-8llX\n", (char*)RVAToOffset(importDirectory->Name, dosHeader) + (DWORD64)dosHeader, RVAToOffset(importDirectory->Name, dosHeader));
 			printf("%-40s|%-8X|%-8s|%X\n", "  OriginalFirstThunk", c, "Dword", importDirectory->OriginalFirstThunk);
 			c += sizeof(importDirectory->OriginalFirstThunk);
 			printf("%-40s|%-8X|%-8s|%X\n", "  TimeDateStamp", c, "Dword", importDirectory->TimeDateStamp);
@@ -537,7 +461,7 @@ void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 			c += sizeof(importDirectory->FirstThunk);
 
 			DWORD thunkRVA = importDirectory->OriginalFirstThunk == 0 ? importDirectory->FirstThunk : importDirectory->OriginalFirstThunk;
-			IMAGE_THUNK_DATA32* thunk = (IMAGE_THUNK_DATA32*)(RVAToOffset64(thunkRVA, dosHeader) + (DWORD64)dosHeader);
+			IMAGE_THUNK_DATA32* thunk = (IMAGE_THUNK_DATA32*)(RVAToOffset(thunkRVA, dosHeader) + (DWORD64)dosHeader);
 			if (printFunction) {
 				printf("%-41s%-9s%-9s%-10s\n", "   IMPORT FUNCTION", "Offset", "Hint", "OFTs");
 				while (thunk->u1.AddressOfData != 0) {
@@ -546,7 +470,7 @@ void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 						printf("    %-36s|%-8X|%-8X\n", "", thunk->u1.Ordinal, thunk->u1.Function);
 					}
 					else {
-						DWORD nameImportOffset = RVAToOffset64(thunk->u1.AddressOfData, dosHeader);
+						DWORD nameImportOffset = RVAToOffset(thunk->u1.AddressOfData, dosHeader);
 						IMAGE_IMPORT_BY_NAME* nameImport = (IMAGE_IMPORT_BY_NAME*)(nameImportOffset + (DWORD64)dosHeader);
 						printf("    %-36s|%-8X|%-8X|%-8X\n", nameImport->Name, nameImportOffset, nameImport->Hint, thunk->u1.Ordinal);
 					}
@@ -556,12 +480,12 @@ void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 			importDirectory++;
 		}
 	}
-	else if (ntHeader32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+	else {
 		dataDirectory = ntHeader64->OptionalHeader.DataDirectory;
-		importDirectory = (IMAGE_IMPORT_DESCRIPTOR*)(RVAToOffset64(dataDirectory[1].VirtualAddress, dosHeader) + (DWORD64)dosHeader);
+		importDirectory = (IMAGE_IMPORT_DESCRIPTOR*)(RVAToOffset(dataDirectory[1].VirtualAddress, dosHeader) + (DWORD64)dosHeader);
 		c = (DWORD64)importDirectory - (DWORD64)dosHeader;
 		while (importDirectory->Name != 0) {
-			printf("%-40s|%-8llX\n", (char*)RVAToOffset64(importDirectory->Name, dosHeader) + (DWORD64)dosHeader, RVAToOffset64(importDirectory->Name, dosHeader));
+			printf("%-40s|%-8llX\n", (char*)RVAToOffset(importDirectory->Name, dosHeader) + (DWORD64)dosHeader, RVAToOffset(importDirectory->Name, dosHeader));
 			printf("%-40s|%-8X|%-8s|%X\n", "  OriginalFirstThunk", c, "Dword", importDirectory->OriginalFirstThunk);
 			c += sizeof(importDirectory->OriginalFirstThunk);
 			printf("%-40s|%-8X|%-8s|%X\n", "  TimeDateStamp", c, "Dword", importDirectory->TimeDateStamp);
@@ -574,7 +498,7 @@ void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 			c += sizeof(importDirectory->FirstThunk);
 
 			DWORD64 thunkRVA = importDirectory->OriginalFirstThunk == 0 ? importDirectory->FirstThunk : importDirectory->OriginalFirstThunk;
-			IMAGE_THUNK_DATA64* thunk = (IMAGE_THUNK_DATA64*)(RVAToOffset64(thunkRVA, dosHeader) + (DWORD64)dosHeader);
+			IMAGE_THUNK_DATA64* thunk = (IMAGE_THUNK_DATA64*)(RVAToOffset(thunkRVA, dosHeader) + (DWORD64)dosHeader);
 			if (printFunction) {
 				printf("%-41s%-9s%-9s%-10s\n", "   IMPORT FUNCTION", "Offset", "Hint", "OFTs");
 				while (thunk->u1.AddressOfData != 0) {
@@ -583,7 +507,7 @@ void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 						printf("    %-36s|%-8llX|%-8llX\n", "", thunk->u1.Ordinal, thunk->u1.Function);
 					}
 					else {
-						DWORD nameImportOffset = RVAToOffset64(thunk->u1.AddressOfData, dosHeader);
+						DWORD nameImportOffset = RVAToOffset(thunk->u1.AddressOfData, dosHeader);
 						IMAGE_IMPORT_BY_NAME* nameImport = (IMAGE_IMPORT_BY_NAME*)(nameImportOffset + (DWORD64)dosHeader);
 						printf("    %-36s|%-8X|%-8X|%-8llX\n", nameImport->Name, nameImportOffset, nameImport->Hint, thunk->u1.Ordinal);
 					}
@@ -593,11 +517,44 @@ void printImportSection(IMAGE_DOS_HEADER* dosHeader, BOOL printFunction) {
 			importDirectory++;
 		}
 	}
-	else return;
-
 }
 
-void Error(char* ErrorMessage, BOOL printErrorCode, BOOL isReturn, int exitCode) {
+BOOL PEValidate(IMAGE_DOS_HEADER * dosHeader) {
+	IMAGE_NT_HEADERS64* ntHeader = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
+	if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+		return FALSE;
+	}
+
+	if (ntHeader->Signature != IMAGE_NT_SIGNATURE) {
+		return FALSE;
+	}
+	return TRUE;
+}
+
+VOID getFileData(char * fileName, LPVOID * fileData, LPDWORD fileSize) {
+	HANDLE hFile;
+	DWORD byteRead = 0;
+	if (strnlen_s(fileName, MAX_PATH + 1) > MAX_PATH) {
+		Error("Path too long", FALSE, TRUE, 1);
+	}
+	hFile = CreateFile(fileName, GENERIC_ALL, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		Error("Cannot open file.", TRUE, TRUE, 1);
+	}
+
+	*fileSize = GetFileSize(hFile, NULL);
+
+	*fileData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, *fileSize);
+	if (!*fileData) {
+		Error("Cannot allocate memory.", FALSE, TRUE, 1);
+	}
+	if (!ReadFile(hFile, *fileData, *fileSize, &byteRead, NULL)) {
+		Error("Cannot read file.", TRUE, TRUE, 1);
+	}
+}
+
+VOID Error(char* ErrorMessage, BOOL printErrorCode, BOOL isReturn, int exitCode) {
 	printf(ErrorMessage);
 	if (printErrorCode)
 		printf("\nError: %d\n", GetLastError());
@@ -605,20 +562,7 @@ void Error(char* ErrorMessage, BOOL printErrorCode, BOOL isReturn, int exitCode)
 		ExitProcess(exitCode);
 }
 
-DWORD RVAToOffset32(DWORD RVA, IMAGE_DOS_HEADER* dosHeader) {
-	IMAGE_SECTION_HEADER* sectionHeader;
-	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
-
-	sectionHeader = (IMAGE_SECTION_HEADER*)((DWORD)ntHeader32 + sizeof(IMAGE_NT_SIGNATURE) + sizeof(IMAGE_FILE_HEADER) + ntHeader32->FileHeader.SizeOfOptionalHeader);
-	if (RVA == 0)return 0;
-	for (int i = 0; i < ntHeader32->FileHeader.NumberOfSections; i++) {
-		if (RVA >= sectionHeader[i].VirtualAddress && RVA - sectionHeader[i].VirtualAddress < sectionHeader[i].Misc.VirtualSize) {
-			return RVA - sectionHeader[i].VirtualAddress + sectionHeader[i].PointerToRawData;
-		}
-	}
-	return 0;
-}
-DWORD64 RVAToOffset64(DWORD64 RVA, IMAGE_DOS_HEADER* dosHeader) {
+DWORD64 RVAToOffset(DWORD64 RVA, IMAGE_DOS_HEADER* dosHeader) {
 	IMAGE_SECTION_HEADER* sectionHeader;
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 
@@ -631,19 +575,8 @@ DWORD64 RVAToOffset64(DWORD64 RVA, IMAGE_DOS_HEADER* dosHeader) {
 	}
 	return 0;
 }
-DWORD OffsetToRVA32(DWORD Offset, IMAGE_DOS_HEADER* dosHeader) {
-	IMAGE_SECTION_HEADER* sectionHeader;
-	IMAGE_NT_HEADERS32* ntHeader32 = (IMAGE_NT_HEADERS32*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 
-	sectionHeader = (IMAGE_SECTION_HEADER*)((DWORD)ntHeader32 + sizeof(IMAGE_NT_SIGNATURE) + sizeof(IMAGE_FILE_HEADER) + ntHeader32->FileHeader.SizeOfOptionalHeader);
-	for (int i = 0; i < ntHeader32->FileHeader.NumberOfSections; i++) {
-		if (Offset >= sectionHeader[i].PointerToRawData && Offset < sectionHeader[i].PointerToRawData + sectionHeader[i].SizeOfRawData) {
-			return Offset - sectionHeader[i].PointerToRawData + sectionHeader[i].VirtualAddress;
-		}
-	}
-	return 0;
-}
-DWORD64 OffsetToRVA64(DWORD64 Offset, IMAGE_DOS_HEADER* dosHeader) {
+DWORD64 OffsetToRVA(DWORD64 Offset, IMAGE_DOS_HEADER* dosHeader) {
 	IMAGE_SECTION_HEADER* sectionHeader;
 	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
 
@@ -654,4 +587,12 @@ DWORD64 OffsetToRVA64(DWORD64 Offset, IMAGE_DOS_HEADER* dosHeader) {
 		}
 	}
 	return 0;
+}
+
+BOOL is64(IMAGE_DOS_HEADER* dosHeader) {
+	IMAGE_NT_HEADERS64* ntHeader64 = (IMAGE_NT_HEADERS64*)((DWORD64)dosHeader + dosHeader->e_lfanew);
+	if (ntHeader64->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+		return TRUE;
+	}
+	else return FALSE;
 }
