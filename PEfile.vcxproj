@@ -110,6 +110,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ReadPE.cpp" />
     <ClCompile Include="Injector.cpp" />
     <ClCompile Include="PEfile.cpp" />
   </ItemGroup>
