@@ -28,10 +28,10 @@ int main(int argc, char* argv[]) {
 	//printImportSection(dosHeader, TRUE);
 
 	PE pe = parsePEFile(fileData);
-	if (isExecutable(fileData)) {
-		writeBinary(pe, "output.exe", fileSize);
-	}
-	//Inject(fileData, fileSize, );
+	//if (isExecutable(fileData)) {
+	//	writeBinary(pe, "output.exe", fileSize);
+	//}
+	Inject(fileData, fileSize, "",0,"");
 	return 0;
 }
 

