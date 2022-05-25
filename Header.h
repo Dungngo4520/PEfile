@@ -36,4 +36,5 @@ BOOL isExecutable(LPVOID fileData);
 PE parsePEFile(LPVOID fileData);
 VOID writeBinary(PE pe, char* fileName, DWORD size);
 DWORD64 align(DWORD64 address, DWORD64 alignment);
-VOID Inject(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPath);
+VOID InjectNewSectionEnd(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPath);
+VOID InjectNewSectionBegin(LPVOID fileData, DWORD size, char* code, DWORD codeSize, char* outPath);

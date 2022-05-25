@@ -532,6 +532,7 @@ VOID getFileData(char * fileName, LPVOID * fileData, LPDWORD fileSize) {
 	if (!ReadFile(hFile, *fileData, *fileSize, &byteRead, NULL)) {
 		Error("Cannot read file.", TRUE, TRUE, 1);
 	}
+	CloseHandle(hFile);
 }
 
 VOID Error(char* ErrorMessage, BOOL printErrorCode, BOOL isReturn, int exitCode) {
