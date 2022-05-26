@@ -321,68 +321,68 @@ VOID InjectNewSectionBegin(LPVOID fileData, DWORD fileSize, char* code, DWORD co
 		writeBinary(pe, outPath, fileSize + pe.sectionHeader[newSection].SizeOfRawData);
 	}
 	else {
+		char mov[] = "\xb8"; // mov eax
+		char hexOEP[4] = {};
+		char jmp[] = "\xff\xe0"; //jmp eax
+
+		int injectSize = sizeof(mov) + sizeof(jmp) + sizeof(hexOEP) + codeSize;
+		DWORD64 alignedInjectFile = align(injectSize, pe.ntHeader32.OptionalHeader.FileAlignment);
+		DWORD64 alignedInjectSection = align(injectSize, pe.ntHeader32.OptionalHeader.SectionAlignment);
 
 		//get Entry Point base address
 		DWORD64 imageBase = pe.ntHeader32.OptionalHeader.ImageBase;
-		DWORD64 OEP = pe.ntHeader32.OptionalHeader.AddressOfEntryPoint;
+		DWORD64 OEP = pe.ntHeader32.OptionalHeader.AddressOfEntryPoint + alignedInjectSection; // old EP move since inject code 
 		DWORD64 baseOEP = imageBase + OEP;
+
 		if (baseOEP < imageBase) {
 			Error("Unexpected Error.", FALSE, TRUE, 1);
 		}
 
-		char mov[] = "\xb8"; // mov eax
-							 // convert entry point to hex
-		char hexOEP[4] = {
-			baseOEP >> 0 & 0xff,
-			baseOEP >> 8 & 0xff,
-			baseOEP >> 16 & 0xff,
-			baseOEP >> 24 & 0xff
-		};
-		char jmp[] = "\xff\xe0"; //jmp eax
+		// convert entry point to hex
+		for (int i = 0; i < 4; i++) {
+			hexOEP[i] = baseOEP >> (i * 8) & 0xff;
+		}
 
-		int injectSize = sizeof(mov) + sizeof(jmp) + sizeof(hexOEP) + codeSize;
-
-		pe.ntHeader32.FileHeader.NumberOfSections++;
+		// find the place for new section
 		int numSection = pe.ntHeader32.FileHeader.NumberOfSections;
-
 		int newSection = 0;
-		for (int i = 0; i < numSection - 1; i++) {
+		for (int i = 0; i < numSection; i++) {
 			if (pe.sectionHeader[i].Characteristics & IMAGE_SCN_CNT_CODE && !(pe.sectionHeader[i].Characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA)) {
 				newSection = i;
 				break;
 			}
 		}
 
+		pe.ntHeader32.FileHeader.NumberOfSections++;
+		numSection++;
+
+
 		//allocate new section header
-		IMAGE_SECTION_HEADER* newSectionHeader = (IMAGE_SECTION_HEADER*)calloc(numSection, sizeof(IMAGE_SECTION_HEADER));
+		IMAGE_SECTION_HEADER* newSectionHeader = (IMAGE_SECTION_HEADER*)realloc(pe.sectionHeader, numSection * sizeof(IMAGE_SECTION_HEADER));
 		if (newSectionHeader == NULL) {
 			Error("Cannot allocate new section header", 0, 1, 1);
 		}
-
-		memcpy(newSectionHeader, pe.sectionHeader, (numSection - 1) * sizeof(IMAGE_SECTION_HEADER));
+		pe.sectionHeader = newSectionHeader;
 
 		// move section header + 1
 		for (int i = numSection - 1; i > newSection; i--) {
-			newSectionHeader[i] = newSectionHeader[i - 1];
+			pe.sectionHeader[i] = pe.sectionHeader[i - 1];
 		}
 
 		//fill up new section header
-		newSectionHeader[newSection] = {};
-		newSectionHeader[newSection].VirtualAddress = align(newSectionHeader[newSection - 1].VirtualAddress + newSectionHeader[newSection - 1].Misc.VirtualSize, pe.ntHeader32.OptionalHeader.SectionAlignment);
-		memcpy(newSectionHeader[newSection].Name, ".inject", 8);
-		newSectionHeader[newSection].PointerToRawData = align(pe.sizeDosStub + pe.sizeNTHeader32 + pe.sizeSectionHeader + sizeof(IMAGE_SECTION_HEADER), pe.ntHeader32.OptionalHeader.FileAlignment);
-		newSectionHeader[newSection].Misc.VirtualSize = injectSize;
-		newSectionHeader[newSection].SizeOfRawData = align(injectSize, pe.ntHeader32.OptionalHeader.FileAlignment);
-		newSectionHeader[newSection].Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
+		pe.sectionHeader[newSection] = {};
+		pe.sectionHeader[newSection].VirtualAddress = align(pe.sectionHeader[newSection - 1].VirtualAddress + pe.sectionHeader[newSection - 1].Misc.VirtualSize, pe.ntHeader32.OptionalHeader.SectionAlignment);
+		memcpy(pe.sectionHeader[newSection].Name, ".inject", 8);
+		pe.sectionHeader[newSection].PointerToRawData = align(pe.sizeDosStub + pe.sizeNTHeader32 + pe.sizeSectionHeader + sizeof(IMAGE_SECTION_HEADER), pe.ntHeader32.OptionalHeader.FileAlignment);
+		pe.sectionHeader[newSection].Misc.VirtualSize = injectSize;
+		pe.sectionHeader[newSection].SizeOfRawData = alignedInjectFile;
+		pe.sectionHeader[newSection].Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
 
 		// recalculate old section header addresses
 		for (int i = newSection + 1; i < numSection; i++) {
-			newSectionHeader[i].VirtualAddress = align(newSectionHeader[i - 1].VirtualAddress + newSectionHeader[i - 1].Misc.VirtualSize, pe.ntHeader32.OptionalHeader.SectionAlignment);
-			newSectionHeader[i].PointerToRawData = newSectionHeader[i - 1].PointerToRawData + newSectionHeader[i - 1].SizeOfRawData;
+			pe.sectionHeader[i].VirtualAddress = align(pe.sectionHeader[i - 1].VirtualAddress + pe.sectionHeader[i - 1].Misc.VirtualSize, pe.ntHeader32.OptionalHeader.SectionAlignment);
+			pe.sectionHeader[i].PointerToRawData = pe.sectionHeader[i - 1].PointerToRawData + pe.sectionHeader[i - 1].SizeOfRawData;
 		}
-
-		free(pe.sectionHeader);
-		pe.sectionHeader = newSectionHeader;
 
 		//recalculate image size
 		pe.ntHeader32.OptionalHeader.SizeOfImage = align(pe.sectionHeader[numSection - 1].VirtualAddress + pe.sectionHeader[numSection - 1].Misc.VirtualSize, pe.ntHeader32.OptionalHeader.SectionAlignment);
@@ -390,40 +390,80 @@ VOID InjectNewSectionBegin(LPVOID fileData, DWORD fileSize, char* code, DWORD co
 		//change entry point
 		pe.ntHeader32.OptionalHeader.AddressOfEntryPoint = pe.sectionHeader[newSection].VirtualAddress;
 
-		
-		
+
+
 		//allocate new section data
-		char** SectionData = (char**)calloc(numSection, sizeof(char*));
+		char** SectionData = (char**)realloc(pe.sections, numSection * sizeof(char*));
 		if (SectionData == NULL) {
 			Error("Cannot allocate new section data", 0, 1, 1);
 		}
-		memcpy(SectionData, pe.sections, (numSection - 1) * sizeof(char*));
+		pe.sections = SectionData;
 
 		// move all section +1
 		for (int i = numSection - 1; i > newSection; i--) {
-			SectionData[i] = SectionData[i - 1];
+			pe.sections[i] = pe.sections[i - 1];
 		}
 
-		char* newSectionData = (char*)calloc(pe.sectionHeader[newSection].SizeOfRawData , sizeof(char));
+		char* newSectionData = (char*)calloc(pe.sectionHeader[newSection].SizeOfRawData, sizeof(char));
 		if (newSectionData == NULL) {
 			Error("Cannot reallocate new section data", 0, 1, 1);
 		}
 
+		pe.sections[newSection] = newSectionData;
+
 		//copy data to section
-		memcpy(newSectionData, code, codeSize); //code
-		memcpy(newSectionData + codeSize - 1, mov, sizeof(mov)); // mov eax, ...
-		memcpy(newSectionData + codeSize + sizeof(mov) - 2, hexOEP, sizeof(hexOEP)); // entry point
-		memcpy(newSectionData + codeSize + sizeof(mov) + sizeof(hexOEP) - 2, jmp, sizeof(jmp)); // jmp eax
-
-		SectionData[newSection] = newSectionData;
-
-		free(pe.sections);
-		pe.sections = SectionData;
+		memset(pe.sections[newSection], 0, pe.sectionHeader[newSection].SizeOfRawData);
+		memcpy(pe.sections[newSection], code, codeSize); //code
+		memcpy(pe.sections[newSection] + codeSize - 1, mov, sizeof(mov)); // mov eax, ...
+		memcpy(pe.sections[newSection] + codeSize + sizeof(mov) - 2, hexOEP, sizeof(hexOEP)); // entry point
+		memcpy(pe.sections[newSection] + codeSize + sizeof(mov) + sizeof(hexOEP) - 2, jmp, sizeof(jmp)); // jmp eax
 
 		// disable ASLR and strip relocations
-		pe.ntHeader32.OptionalHeader.DllCharacteristics ^= IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
-		pe.ntHeader32.FileHeader.Characteristics |= IMAGE_FILE_RELOCS_STRIPPED;
+		//pe.ntHeader32.OptionalHeader.DllCharacteristics ^= IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
+		//pe.ntHeader32.FileHeader.Characteristics |= IMAGE_FILE_RELOCS_STRIPPED | IMAGE_FILE_DEBUG_STRIPPED;
 
+
+		//// fix data directory
+		IMAGE_DATA_DIRECTORY* dataDirectory = pe.ntHeader32.OptionalHeader.DataDirectory;
+
+		// fix import directory
+		dataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress += alignedInjectSection;
+		dataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress += alignedInjectSection;
+
+		DWORD64 importDirectoryOffset = 0;
+		int importDirectoryIndex = 0;
+		for (int i = 0; i < numSection; i++) {
+			if (dataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress >= pe.sectionHeader[i].VirtualAddress&&
+				dataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress < pe.sectionHeader[i].VirtualAddress + pe.sectionHeader[i].Misc.VirtualSize) {
+				importDirectoryOffset = dataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress - pe.sectionHeader[i].VirtualAddress;
+				importDirectoryIndex = i;
+				break;
+			}
+		}
+
+		IMAGE_IMPORT_DESCRIPTOR* importDirectory = (IMAGE_IMPORT_DESCRIPTOR*)(importDirectoryOffset + pe.sections[importDirectoryIndex]);
+		while (importDirectory->Name != 0) {
+			importDirectory->FirstThunk += alignedInjectSection;
+			importDirectory->OriginalFirstThunk += alignedInjectSection;
+			importDirectory->Name += alignedInjectSection;
+
+			DWORD originalThunk = importDirectory->OriginalFirstThunk;
+			DWORD firstThunk = importDirectory->FirstThunk;
+			IMAGE_THUNK_DATA32* oThunk = (IMAGE_THUNK_DATA32*)(originalThunk - pe.sectionHeader[importDirectoryIndex].VirtualAddress + pe.sections[importDirectoryIndex]);
+			while (oThunk->u1.AddressOfData != 0) {
+				oThunk->u1.Function += alignedInjectSection;
+				oThunk++;
+			}
+			IMAGE_THUNK_DATA32* fThunk = (IMAGE_THUNK_DATA32*)(firstThunk - pe.sectionHeader[importDirectoryIndex].VirtualAddress + pe.sections[importDirectoryIndex]);
+			while (fThunk->u1.AddressOfData != 0) {
+				fThunk->u1.Function += alignedInjectSection;
+				fThunk++;
+			}
+			importDirectory++;
+		}
+
+		// fix IAT directory
+		
 
 		writeBinary(pe, outPath, fileSize + pe.sectionHeader[newSection].SizeOfRawData);
 	}
